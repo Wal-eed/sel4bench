@@ -162,3 +162,55 @@ benchmark_t *irquser_benchmark_new(void)
 {
     return &irquser_benchmark;
 }
+
+static json_t *irqcold_process(void *r)
+{
+    irqcold_results_t *raw_results = r;
+
+    result_desc_t desc = {
+        .ignored = N_IGNORED,
+        .name = "IRQ user measurement overhead"
+    };
+
+    result_t results[3];
+
+    results[0] = process_result(N_RUNS, raw_results->overheads, desc);
+
+    desc.overhead = results[0].min;
+
+    results[1] = process_result(N_RUNS, raw_results->thread_results, desc);
+    results[2] = process_result(N_RUNS, raw_results->process_results, desc);
+
+    char *types[] = {"Measurement overhead", "Without context switch", "With context switch"};
+
+    column_t col = {
+        .header = "Type",
+        .type = JSON_STRING,
+        .string_array = types
+    };
+
+    result_set_t set = {
+        .name = "IRQ path cycle count (measured from user level) with a cold cache",
+        .n_results = 3,
+        .results = results,
+        .n_extra_cols = 1,
+        .extra_cols = &col
+    };
+
+    json_t *json = json_array();
+    json_array_append_new(json, result_set_to_json(set));
+    return json;
+}
+
+static benchmark_t irqcold_benchmark = {
+    .name = "irqcold",
+    .enabled = config_set(CONFIG_APP_IRQCOLDBENCH),
+    .results_pages = BYTES_TO_SIZE_BITS_PAGES(sizeof(irqcold_results_t), seL4_PageBits),
+    .process = irqcold_process,
+    .init = blank_init
+};
+
+benchmark_t *irqcold_benchmark_new(void)
+{
+    return &irqcold_benchmark;
+}

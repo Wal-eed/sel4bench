@@ -110,7 +110,7 @@ int run_benchmark(env_t *env, benchmark_t *benchmark, void *local_results_vaddr,
     config = process_config_mcp(config, seL4_MaxPrio);
     error = sel4utils_configure_process_custom(&process, &env->vka, &env->vspace, config);
     ZF_LOGF_IFERR(error, "Failed to configure process for %s benchmark", benchmark->name);
-
+    
     /* initialise sched ctrl for benchmark environment */
     if (config_set(CONFIG_KERNEL_MCS)) {
         seL4_CPtr sched_ctrl = simple_get_sched_ctrl(&env->simple, 0);
@@ -141,7 +141,7 @@ int run_benchmark(env_t *env, benchmark_t *benchmark, void *local_results_vaddr,
 
     /* do benchmark specific init */
     benchmark->init(&env->vka, &env->simple, &process);
-
+    
     size_t num_fdt_pages = 0;
     if (config_set(CONFIG_ARCH_ARM)) {
         char *fdt_blob = ps_io_fdt_get(&env->ops.io_fdt);
@@ -280,7 +280,7 @@ void *main_continued(void *arg)
         page_mapping_benchmark_new(),
         smp_benchmark_new(),
         vcpu_benchmark_new(),
-
+        irqcold_benchmark_new(),
         /* null terminator */
         NULL
     };

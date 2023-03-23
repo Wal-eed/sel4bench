@@ -50,6 +50,9 @@ set(IRQ OFF CACHE BOOL "Application to benchmark seL4 IRQs from inside the kerne
 set(IRQUSER ON CACHE BOOL "Application to benchmark seL4 IRQs")
 
 # default is ON
+set(IRQCOLD ON CACHE BOOL "Application to benchmark seL4 IRQs under a cold cache")
+
+# default is ON
 set(SCHED ON CACHE BOOL "Application to benchmark seL4 scheduler")
 
 # default is ON

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 #include <autoconf.h>
-#include <sel4benchirquser/gen_config.h>
+#include <sel4benchirqcold/gen_config.h>
 #include <stdio.h>
 #include <sel4runtime.h>
 #include <muslcsys/vsyscall.h>
@@ -25,6 +25,41 @@
 #include <irq.h>
 
 #define INTERRUPT_PERIOD_NS (10 * NS_IN_MS)
+#define DACHEPOLLUTION_SIZE 64000
+
+int *array;
+int **ptrs;
+
+void init_dcache_pollution(void) {
+    array = malloc(DACHEPOLLUTION_SIZE * sizeof(int));
+    ptrs = malloc(DACHEPOLLUTION_SIZE * sizeof(int *));
+}
+
+void pollute_dcache(void) {
+    for (int i = 0; i < DACHEPOLLUTION_SIZE; i++) {
+        ptrs[i] = &array[i];
+    }
+
+    // shuffle the pointers
+    for (int i = 0; i < DACHEPOLLUTION_SIZE; i++) {
+        int j = rand() % DACHEPOLLUTION_SIZE;
+        int *tmp = ptrs[i];
+        ptrs[i] = ptrs[j];
+        ptrs[j] = tmp;
+    }
+
+    // access the array through the shuffled pointers
+    for (int i = 0; i < DACHEPOLLUTION_SIZE; i++) {
+        *ptrs[i] = i;
+    }
+}
+
+void pollute_icache(void) {
+    __asm__(".rept 32000\n\t"
+            "nop\n\t"
+            ".endr");
+}
+
 
 void abort(void)
 {
@@ -33,7 +68,7 @@ void abort(void)
 
 void spinner_fn(int argc, char **argv)
 {
-    sel4bench_init();
+    // sel4bench_init();
     if (argc != 1) {
         abort();
     }
@@ -43,6 +78,7 @@ void spinner_fn(int argc, char **argv)
     while (1) {
         /* just take the low bits so the reads are atomic */
         SEL4BENCH_READ_CCNT(*current_time);
+        // ZF_LOGE("current_time: %ld", (seL4_Word) * current_time);
     }
 }
 
@@ -61,15 +97,18 @@ void ticker_fn(ccnt_t *results, volatile ccnt_t *current_time)
     ccnt_t end;
     seL4_Word badge;
 
-    for (int i = 0; i < N_RUNS; i++) {
+    for (int i = 0; i < 1; i++) {
         /* wait for irq */
         seL4_Wait(timer_signal, &badge);
+        // ZF_LOGE("Got IRQ");
         /* record result */
         SEL4BENCH_READ_CCNT(end);
         sel4platsupport_irq_handle(irq_ops, timer_ntfn_id, badge);
         end_low = (seL4_Word) end;
         start = (seL4_Word) * current_time;
+        // ZF_LOGE("start: %ld, end: %ld", start, end_low);
         results[i] = end_low - start;
+        // ZF_LOGE("result: %ld", results[i]);
     }
 
     seL4_Send(done_ep, seL4_MessageInfo_new(0, 0, 0, 0));
@@ -114,12 +153,16 @@ int main(int argc, char **argv)
     irq_ops = &env->io_ops.irq_ops;
     timer_ntfn_id = env->ntfn_id;
 
+    init_dcache_pollution();
+    pollute_dcache();
+    pollute_icache();
+
     int error = ltimer_reset(&env->ltimer);
     ZF_LOGF_IF(error, "Failed to start timer");
 
-    error = ltimer_set_timeout(&env->ltimer, INTERRUPT_PERIOD_NS, TIMEOUT_PERIODIC);
-    ZF_LOGF_IF(error, "Failed to configure timer");
-
+    // error = ltimer_set_timeout(&env->ltimer, INTERRUPT_PERIOD_NS, TIMEOUT_PERIODIC);
+    // ZF_LOGF_IF(error, "Failed to configure timer");
+    
     sel4bench_init();
 
     sel4utils_thread_t ticker, spinner;
@@ -142,30 +185,51 @@ int main(int argc, char **argv)
     benchmark_configure_thread(env, endpoint.cptr, seL4_MaxPrio - 1, "ticker", &ticker);
     benchmark_configure_thread(env, endpoint.cptr, seL4_MaxPrio - 2, "spinner", &spinner);
 
-    error = sel4utils_start_thread(&ticker, (sel4utils_thread_entry_fn) ticker_fn, (void *) results->thread_results,
-                                   (void *) local_current_time, true);
-    if (error) {
-        ZF_LOGF("Failed to start ticker");
-    }
-
+    // ZF_LOGE("Starting spinner");
     char strings[1][WORD_STRING_SIZE];
     char *spinner_argv[1];
-
     sel4utils_create_word_args(strings, spinner_argv, 1, (seL4_Word) local_current_time);
     error = sel4utils_start_thread(&spinner, (sel4utils_thread_entry_fn) spinner_fn, (void *) 1, (void *) spinner_argv,
                                    true);
-    assert(!error);
 
-    benchmark_wait_children(endpoint.cptr, "child of irq-user", 1);
+    for (int i = 0; i < N_RUNS; i++) {
+        // ZF_LOGE("Starting run %d", i);
+        
+        // ZF_LOGE("Restarting timer");
+        error = ltimer_set_timeout(&env->ltimer, INTERRUPT_PERIOD_NS, TIMEOUT_PERIODIC);
+        ZF_LOGF_IF(error, "Failed to configure timer");
 
-    /* stop spinner thread */
-    error = seL4_TCB_Suspend(spinner.tcb.cptr);
-    assert(error == seL4_NoError);
+        // ZF_LOGE("Starting ticker");
+        error = sel4utils_start_thread(&ticker, (sel4utils_thread_entry_fn) ticker_fn, (void *) (results->thread_results + i),
+                                   (void *) local_current_time, true);
+        if (error) {
+            ZF_LOGF("Failed to start ticker");
+        }
 
-    error = seL4_TCB_Suspend(ticker.tcb.cptr);
-    assert(error == seL4_NoError);
+        // seL4_DebugDumpScheduler();
+
+        benchmark_wait_children(endpoint.cptr, "child of irq-cold", 1);
+
+        // ZF_LOGE("Stopping ticker");
+        error = seL4_TCB_Suspend(ticker.tcb.cptr);
+        assert(error == seL4_NoError);
+
+        // ZF_LOGE("Resetting timer");
+        int error = ltimer_reset(&env->ltimer);
+        ZF_LOGF_IF(error, "Failed to start timer");
+        
+        // ZF_LOGE("Polluting caches");
+        pollute_dcache(); 
+        pollute_icache();
+    }
 
     /* now run the benchmark again, but run the spinner in another address space */
+    
+    //  TODO: Fix this
+    ltimer_set_timeout(&env->ltimer, INTERRUPT_PERIOD_NS, TIMEOUT_PERIODIC);
+    // ZF_LOGE("Stopping spinner");
+    error = seL4_TCB_Suspend(spinner.tcb.cptr);
+    assert(error == seL4_NoError);
 
     /* restart ticker */
     error = sel4utils_start_thread(&ticker, (sel4utils_thread_entry_fn) ticker_fn, (void *) results->process_results,

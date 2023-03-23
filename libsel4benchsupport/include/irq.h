@@ -24,3 +24,9 @@ typedef struct irquser_results_t {
     ccnt_t thread_results[N_RUNS];
     ccnt_t process_results[N_RUNS];
 } irquser_results_t;
+
+typedef struct irqcold_results_t {
+    ccnt_t overheads[N_RUNS];
+    ccnt_t thread_results[N_RUNS];
+    ccnt_t process_results[N_RUNS];
+} irqcold_results_t;

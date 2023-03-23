@@ -10,6 +10,7 @@
 #include <hardware/gen_config.h>
 #include <sel4benchipc/gen_config.h>
 #include <sel4benchirq/gen_config.h>
+#include <sel4benchirqcold/gen_config.h>
 #include <sel4benchirquser/gen_config.h>
 #include <sel4benchpagemapping/gen_config.h>
 #include <sel4benchscheduler/gen_config.h>
@@ -97,6 +98,7 @@ typedef struct {
 
 benchmark_t *ipc_benchmark_new(void);
 benchmark_t *irq_benchmark_new(void);
+benchmark_t *irqcold_benchmark_new(void);
 benchmark_t *irquser_benchmark_new(void);
 benchmark_t *scheduler_benchmark_new(void);
 benchmark_t *signal_benchmark_new(void);
@@ -106,6 +108,7 @@ benchmark_t *sync_benchmark_new(void);
 benchmark_t *page_mapping_benchmark_new(void);
 benchmark_t *smp_benchmark_new(void);
 benchmark_t *vcpu_benchmark_new(void);
+
 
 static inline void blank_init(UNUSED vka_t *vka, UNUSED simple_t *simple, UNUSED sel4utils_process_t *process)
 {
